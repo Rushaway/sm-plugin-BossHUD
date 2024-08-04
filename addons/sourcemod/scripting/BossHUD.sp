@@ -22,7 +22,7 @@
 ConVar g_cVHudPosition, g_cVHudColor, g_cVHudSymbols;
 ConVar g_cVDisplayType;
 ConVar g_cVTopHitsPos, g_cVTopHitsColor, g_cVTopHitsTitle, g_cVPlayersInTable;
-ConVar g_cVStatsReward, g_cVBossHitMoney;
+ConVar g_cVStatsReward, g_cVBossHitMoney, g_cvBossDeathNotice, g_cvDeathNoticeUsingPlayers;
 ConVar g_cVHudMinHealth, g_cVHudMaxHealth;
 ConVar g_cVHudTimeout, g_cvHUDChannel;
 ConVar g_cVIgnoreFakeClients;
@@ -39,7 +39,11 @@ bool g_bHudSymbols;
 bool g_bTopHitsTitle = true;
 bool g_bBossHitMoney = true;
 bool g_bStatsReward = false;
+bool g_bBossDeathNotice = true;
+bool g_bDeathNoticeViaPlayers = false;
 bool g_bIgnoreFakeClients = true;
+bool g_bHookMessagesDeathNotice = false;
+
 
 int g_iEntityId[MAXPLAYERS+1] = { -1, ... };
 int g_iHudColor[3], g_iTopHitsColor[3];
@@ -48,6 +52,7 @@ float g_fHudPos[2], g_fTopHitsPos[2];
 
 bool g_bLate = false;
 bool g_bDynamicChannels = false;
+bool g_bDynamicAvailable = false;
 
 char g_sHUDText[256];
 char g_sHUDTextSave[256];
@@ -68,7 +73,7 @@ public Plugin myinfo = {
 	name = "BossHUD",
 	author = "AntiTeal, Cloud Strife, maxime1907",
 	description = "Show the health of bosses and breakables",
-	version = "3.7",
+	version = "3.7.1",
 	url = "antiteal.com"
 };
 
@@ -99,6 +104,9 @@ public void OnPluginStart()
 	HookEntityOutput("math_counter", "OutValue", Hook_OnDamage);
 
 	HookEvent("round_end", Event_OnRoundEnd, EventHookMode_PostNoCopy);
+	HookEvent("player_connect", Event_JoinLeaveMessage, EventHookMode_Post);
+	HookEvent("player_disconnect", Event_JoinLeaveMessage, EventHookMode_Pre);
+	HookUserMessage(GetUserMessageId("SayText2"), Hook_OnNameChangeMessage, true);
 
 	g_cVHudPosition = CreateConVar("sm_bhud_position", "-1.0 0.09", "The X and Y position for the hud.");
 	g_cVHudColor = CreateConVar("sm_bhud_color", "255 0 0", "RGB color value for the hud.");
@@ -114,6 +122,8 @@ public void OnPluginStart()
 	g_cVTopHitsTitle = CreateConVar("sm_bhud_tophits_uppertitle", "1", "Enable/Disable the upper title of the top hits table.", _, true, 0.0, true, 1.0);
 	g_cVPlayersInTable = CreateConVar("sm_bhud_tophits_players", "3", "Amount players on the top hits table", _, true, 1.0, true, 10.0);
 	g_cVBossHitMoney = CreateConVar("sm_bhud_tophits_money", "1", "Enable/Disable payment of boss hits", _, true, 0.0, true, 1.0);
+	g_cvBossDeathNotice = CreateConVar("sm_bhud_boss_death_notice", "1", "Enable/Disable the boss death notice", _, true, 0.0, true, 1.0);
+	g_cvDeathNoticeUsingPlayers = CreateConVar("sm_bhud_death_notice_using_players", "0", "Enable/Disable the usage of inactive players for the boss death notice", _, true, 0.0, true, 1.0);
 	g_cVStatsReward = CreateConVar("sm_bhud_tophits_reward", "0", "Enable/Disable give of the stats points.", _, true, 0.0, true, 1.0);
 	g_cVIgnoreFakeClients = CreateConVar("sm_bhud_ignore_fakeclients", "1", "Enable/Disable not filtering fake clients.", _, true, 0.0, true, 1.0);
 
@@ -130,6 +140,8 @@ public void OnPluginStart()
 	g_cVTopHitsTitle.AddChangeHook(OnConVarChange);
 	g_cVPlayersInTable.AddChangeHook(OnConVarChange);
 	g_cVBossHitMoney.AddChangeHook(OnConVarChange);
+	g_cvBossDeathNotice.AddChangeHook(OnConVarChange);
+	g_cvDeathNoticeUsingPlayers.AddChangeHook(OnConVarChange);
 	g_cVStatsReward.AddChangeHook(OnConVarChange);
 	g_cVIgnoreFakeClients.AddChangeHook(OnConVarChange);
 
@@ -177,7 +189,7 @@ public void OnLibraryRemoved(const char[] name)
 
 stock void VerifyNatives()
 {
-	bDynamicAvailable = g_bDynamicChannels && CanTestFeatures() && GetFeatureStatus(FeatureType_Native, "GetDynamicChannel") == FeatureStatus_Available;
+	g_bDynamicAvailable = g_bDynamicChannels && CanTestFeatures() && GetFeatureStatus(FeatureType_Native, "GetDynamicChannel") == FeatureStatus_Available;
 }
 public void OnPluginEnd()
 {
@@ -210,6 +222,14 @@ public void OnClientDisconnect(int client)
 public void Event_OnRoundEnd(Handle event, const char[] name, bool dontBroadcast)
 {
 	CleanupAndInit();
+}
+
+public void Event_JoinLeaveMessage(Event event, const char[] name, bool dontBroadcast) 
+{
+	if (!g_bBossDeathNotice || !g_bHookMessagesDeathNotice)
+		return;
+
+	SetEventBool(event, "dontBroadcast", true);
 }
 
 public void OnConVarChange(ConVar convar, char[] oldValue, char[] newValue)
@@ -319,6 +339,32 @@ public void Hook_OnDamage(const char[] output, int caller, int activator, float 
 	delete boss;
 }
 
+public Action Hook_OnNameChangeMessage(UserMsg msg_id, Handle read, const int[] players, int playersNum, bool reliable, bool init)
+{
+	if (!g_bBossDeathNotice || !g_bHookMessagesDeathNotice || !reliable)
+		return Plugin_Continue;
+	
+	char buffer[25];
+	switch(GetUserMessageType())
+	{
+		case UM_Protobuf:
+		{
+			view_as<Protobuf>(read).ReadString("msg_name", buffer, sizeof(buffer));
+		}
+		case UM_BitBuf:
+		{
+			view_as<BfRead>(read).ReadChar();
+			view_as<BfRead>(read).ReadChar();
+			view_as<BfRead>(read).ReadString(buffer, sizeof(buffer));
+		}
+	}
+
+	if (StrContains(buffer, "Name_Change", false) != -1)
+		return Plugin_Handled;
+
+	return Plugin_Continue;
+}
+
 public void BossHP_OnBossInitialized(CBoss boss)
 {
 	if (boss.dConfig != INVALID_HANDLE && boss.dConfig.bIgnore)
@@ -371,6 +417,168 @@ public void BossHP_OnBossDead(CBoss boss)
 			LogPlayerEvent(TopHits[i][0], "triggered", i == 0 ? "top_boss_dmg" : (i == 1 ? "second_boss_dmg" : (i == 2 ? "third_boss_dmg" : "super_boss_dmg")));
 		}
 	}
+
+	if (g_bBossDeathNotice)
+	{
+		// We need to check numbers of terrorists/zombies alive
+		int iAliveT = 0;
+		for (int i = 1; i <= MaxClients; i++)
+		{
+			if (!IsClientInGame(i))
+				continue;
+
+			if (GetClientTeam(i) != CS_TEAM_T || !IsPlayerAlive(i))
+				continue;
+
+			iAliveT++;
+		}
+
+		// No terrorists/zombies alive, we need to stop here to prevent a round draw
+		if (iAliveT < 1)
+			return;
+
+		boss.dConfig.GetName(szName, sizeof(szName));
+
+		bool bCreated = false;
+		bool bSourceTV, bFakeClient;
+		int iTeam, iFakeClient = -1;
+
+		for (int i = 1; i <= MaxClients; i++)
+		{
+			if (!IsClientInGame(i))
+				continue;
+
+			iTeam = GetClientTeam(i);
+			bSourceTV = IsClientSourceTV(i);
+			bFakeClient = IsFakeClient(i);
+
+			// Always use SourceTV first - It does not break demo.
+			if (bSourceTV)
+			{
+				iFakeClient = i;
+				break;
+			}
+
+			if (g_bDeathNoticeViaPlayers)
+			{
+				// Try to find a fake client in spectator
+				if ((iTeam == CS_TEAM_NONE || iTeam == CS_TEAM_SPECTATOR) && bFakeClient && !bSourceTV)
+				{
+					iFakeClient = i;
+					break;
+				}
+
+			#if defined _AFKManager_Included
+				if (g_bNative_AFKManager && (iTeam == CS_TEAM_NONE || iTeam == CS_TEAM_SPECTATOR) && !bSourceTV && !bFakeClient)
+				{
+					// We want to target only inactive players
+					int iIdleTime = GetClientIdleTime(i);
+					if (iIdleTime > 15)
+					{
+						iFakeClient = i;
+						break;
+					}
+				}
+			#endif
+			}
+		}
+
+		char sBossName[64];
+		FormatEx(sBossName, sizeof(sBossName), "BOSS [%s]", szName);
+		g_bHookMessagesDeathNotice = true;
+
+		// If no solution was found, we will create a fake client if server isn't full
+		// Otherwise, we stop here..
+		if (iFakeClient == -1 && GetClientCount(false) < MaxClients)
+		{
+			iFakeClient = CreateFakeClient(sBossName);
+			if (iFakeClient == 0)
+			{
+				g_bHookMessagesDeathNotice = false;
+				return;
+			}
+			
+			bCreated = true;
+		}
+		else
+		{
+			SetClientName(iFakeClient, sBossName);
+		}
+
+		CS_SwitchTeam(iFakeClient, CS_TEAM_T);
+
+		DataPack data = new DataPack();
+		data.WriteCell(iFakeClient);
+		data.WriteString(sBossName);
+		data.WriteCell(bCreated);
+
+		CreateTimer(0.5, Timer_ShowDeathNotice, data);
+	}
+}
+
+public Action Timer_ShowDeathNotice(Handle timer, DataPack data)
+{
+	char szName[64];
+
+	data.Reset();
+	int iFakeClient = data.ReadCell();
+	data.ReadString(szName, sizeof(szName));
+	bool bCreated = data.ReadCell();
+	delete data;
+
+	int iUserID = GetClientUserId(iFakeClient);
+	int client = GetClientOfUserId(iUserID);
+	if (client != 0)
+	{
+		Event event = CreateEvent("player_death");
+		if (!event)
+		{
+			g_bHookMessagesDeathNotice = false;
+			return Plugin_Handled;
+		}
+
+		event.SetInt("userid", iUserID);
+		event.SetInt("attacker", 0);
+		event.SetString("weapon", "worldspawn");
+		event.Fire();
+
+		if (bCreated)
+			KickClient(client);
+		else
+		{
+			ChangeClientTeam(iFakeClient, CS_TEAM_NONE);
+			DataPack pack = new DataPack();
+			pack.WriteCell(iFakeClient);
+			CreateTimer(0.3, Timer_RestoreNameTV, pack);
+		}
+	}
+	
+	return Plugin_Handled;
+}
+
+public Action Timer_RestoreNameTV(Handle timer, DataPack pack)
+{
+	pack.Reset();
+	int iFakeClient = pack.ReadCell();
+	delete pack;
+
+	char sSourceTV[64];
+	ConVar cvSourceTV = FindConVar("tv_name");
+	if (cvSourceTV != null)
+	{
+		GetConVarString(cvSourceTV, sSourceTV, sizeof (sSourceTV));
+		delete cvSourceTV;
+	}
+	else
+	{
+		FormatEx(sSourceTV, sizeof(sSourceTV), "SourceTV");
+	}
+
+	if (IsClientConnected(iFakeClient))
+		SetClientName(iFakeClient, sSourceTV);
+
+	g_bHookMessagesDeathNotice = false;
+	return Plugin_Handled;
 }
 
 public void BossHP_OnAllBossProcessStart()
@@ -577,6 +785,8 @@ public void GetConVars()
 	g_bTopHitsTitle = g_cVTopHitsTitle.BoolValue;
 	g_iPlayersInTable = g_cVPlayersInTable.IntValue;
 	g_bBossHitMoney = g_cVBossHitMoney.BoolValue;
+	g_bBossDeathNotice = g_cvBossDeathNotice.BoolValue;
+	g_bDeathNoticeViaPlayers = g_cvDeathNoticeUsingPlayers.BoolValue;
 	g_bStatsReward = g_cVStatsReward.BoolValue;
 	g_bIgnoreFakeClients = g_cVIgnoreFakeClients.BoolValue;
 }
@@ -905,18 +1115,18 @@ void SendHudMsg(
 			FormatEx(szMessageFinale, sizeof(szMessageFinale), "%s", szMessage);
 			ReplaceString(szMessageFinale,sizeof(szMessageFinale), "PERCENTAGE", "%");
 
-			bool bDynamicAvailable = false;
+			g_bDynamicAvailable = false;
 			int iHUDChannel = -1;
 
 			if (g_iHUDChannel < 0 || g_iHUDChannel > 6)
 				g_iHUDChannel = 1;
 
 		#if defined _DynamicChannels_included_
-			if (bDynamicAvailable)
+			if (g_bDynamicAvailable)
 				iHUDChannel = GetDynamicChannel(g_iHUDChannel);
 		#endif
 
-			if (bDynamicAvailable)
+			if (g_bDynamicAvailable)
 				ShowHudText(client, iHUDChannel, "%s", szMessageFinale);
 			else
 			{
