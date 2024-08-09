@@ -155,10 +155,10 @@ public void OnPluginStart()
 	{
 		for (int i = 1; i <= MaxClients; i++)
 		{
-			if (IsClientConnected(i))
-			{
-				OnClientPutInServer(i);
-			}
+			if (!IsClientConnected(i) || IsFakeClient(i))
+				continue;
+
+			OnClientPutInServer(i);
 		}
 	}
 }
@@ -1046,6 +1046,9 @@ void SendHudMsgAll(
 	int client
 )
 {
+	if (!IsValidClient(client) || bFilterClients && !g_bShowHealth[client])
+		return;
+
 	if (bDelayFastPrint)
 	{
 		int currentTime = GetTime();
@@ -1085,9 +1088,6 @@ void SendHudMsgAll(
 		fLastDuration = fDuration;
 		lastTime = currentTime;
 	}
-
-	if (!IsValidClient(client) || bFilterClients && !g_bShowHealth[client])
-		return;
 
 	SendHudMsg(client, szMessage, type, hHudSync, iColors, fPosition, fDuration, iTransparency);
 }
@@ -1330,15 +1330,15 @@ public Action Command_CHP(int client, int argc)
 
 public Action Command_SHP(int client, int argc)
 {
-	if (!IsValidEntity(g_iEntityId[client]))
-	{
-		CPrintToChat(client, "{green}[SM]{default} %T", "Invalid Entity", client, g_iEntityId[client]);
-		return Plugin_Handled;
-	}
-
 	if (argc < 1)
 	{
 		CReplyToCommand(client, "{green}[SM]{default} %T: sm_subtracthp <health>", "Usage", client);
+		return Plugin_Handled;
+	}
+
+	if (!IsValidEntity(g_iEntityId[client]))
+	{
+		CPrintToChat(client, "{green}[SM]{default} %T", "Invalid Entity", client, g_iEntityId[client]);
 		return Plugin_Handled;
 	}
 
@@ -1356,15 +1356,15 @@ public Action Command_SHP(int client, int argc)
 
 public Action Command_AHP(int client, int argc)
 {
-	if (!IsValidEntity(g_iEntityId[client]))
-	{
-		CPrintToChat(client, "{green}[SM]{default} %T", "Invalid Entity", client, g_iEntityId[client]);
-		return Plugin_Handled;
-	}
-
 	if (argc < 1)
 	{
 		CReplyToCommand(client, "{green}[SM]{default} %T: sm_addhp <health>", "Usage", client);
+		return Plugin_Handled;
+	}
+
+	if (!IsValidEntity(g_iEntityId[client]))
+	{
+		CPrintToChat(client, "{green}[SM]{default} %T", "Invalid Entity", client, g_iEntityId[client]);
 		return Plugin_Handled;
 	}
 
