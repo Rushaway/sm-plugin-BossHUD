@@ -70,6 +70,7 @@ native int BossHUD_GetBossHealth(int bossEnt);  // Natives with plugin prefix
 - **CRITICAL**: All SQL queries must be asynchronous using methodmaps
 - **GOOD**: No need to check for null when using `delete`
 - **GOOD**: Use `delete` for CloseHandle and set to null
+- **GOOD**: Use `delete` directly without checking if it's null before delete
 
 ### Performance Best Practices
 - Minimize timer usage where possible
