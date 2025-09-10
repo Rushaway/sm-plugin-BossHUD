@@ -876,7 +876,7 @@ public void CleanupAndInit()
 public void Init()
 {
 	g_aEntity = new ArrayList();
-	g_smBossMap = CreateTrie();
+	g_smBossMap = new StringMap();
 
 	g_hHudSync = CreateHudSynchronizer();
 	g_hHudTopHitsSync = CreateHudSynchronizer();
@@ -896,7 +896,6 @@ void Cleanup()
 
 	if (g_smBossMap != null)
 	{
-		g_smBossMap.Clear();
 		delete g_smBossMap;
 	}
 
@@ -980,7 +979,7 @@ Action Timer_SendHudMsgAll(Handle timer, any data)
 	int iTransparency = pack.ReadCell();
 	int client = pack.ReadCell();
 
-	CloseHandle(pack);
+	delete pack;
 
 	SendHudMsgAll(szMessage, type, hHudSync, iColors, fPosition, fDuration, iTransparency, false, false, client);
 
