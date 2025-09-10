@@ -1,3 +1,12 @@
+/**
+ * BossHUD - Boss Health Display Plugin
+ * 
+ * Description: Displays the health of bosses and breakable entities to players
+ * Author: AntiTeal, Cloud Strife, maxime1907
+ * Version: 3.8.7
+ * URL: antiteal.com
+ */
+
 #pragma semicolon 1
 
 #include <sourcemod>
