@@ -28,7 +28,6 @@ sourceknight.yaml              # Build configuration and dependencies
 ## Key Files and Their Purpose
 
 ### Main Plugin (`addons/sourcemod/scripting/BossHUD.sp`)
-- **Lines**: 1625 lines of SourcePawn code
 - **Purpose**: Core plugin functionality for boss health display
 - **Key Features**:
   - Boss health tracking and HUD display
@@ -78,19 +77,6 @@ native int BossHUD_GetBossHealth(int bossEnt);  // Natives with plugin prefix
 - Use frame skipping for frequent updates (`g_iFramesToSkip`)
 - Avoid loops in frequently called functions (like `OnGameFrame`)
 - Always aim for O(1) complexity over O(n) when possible
-
-## Build Process
-
-### Using SourceKnight
-```bash
-# Install SourceKnight (if not in CI)
-pip install sourceknight
-
-# Build the plugin
-sourceknight build
-
-# Output location: /addons/sourcemod/plugins/BossHUD.smx
-```
 
 ### CI/CD Pipeline
 The GitHub Actions workflow (`.github/workflows/ci.yml`):
